@@ -47,12 +47,16 @@ Flickable {
         font.pixelSize: page.px(13)
     }
 
+    // A date chosen from a drop-down calendar. Clicking the field (or Space,
+    // Enter, or ↓ while it has focus) opens the calendar; `text` holds the
+    // chosen date as ISO text for DateCalc.
     component DateField: ColumnLayout {
         id: dateField
-        property alias text: input.text
+        property string text: dates.todayText()
         property string caption
-        readonly property var parsed: dates.describe(input.text)
-        function forceFocus() { input.forceActiveFocus(); input.selectAll(); }
+        readonly property var parsed: dates.describe(text)
+        function forceFocus() { pickerButton.forceActiveFocus(); }
+        function openCalendar() { calendar.open(); }
         spacing: page.px(4)
         Layout.fillWidth: true
 
@@ -60,27 +64,94 @@ Flickable {
         RowLayout {
             Layout.fillWidth: true
             spacing: page.px(8)
-            Field {
-                id: input
+            Rectangle {
+                id: pickerButton
                 Layout.fillWidth: true
-                hint: "2026-11-14, 11/14/26, +30, -2w"
-                // Tidy to ISO once the field is left with a date it understood.
-                onEditingFinished: if (dateField.parsed.ok && !/^[+-]|today|now|tomorrow|yesterday/i.test(text.trim()))
-                    text = dates.isoText(text)
+                Layout.preferredHeight: page.px(40)
+                activeFocusOnTab: true
+                radius: page.px(8)
+                color: pickerHit.containsMouse ? page.mixColors(page.pageColor, page.inkColor, 0.09) : page.fieldColor
+                border.width: 1
+                border.color: calendar.opened || activeFocus ? Material.accent : page.lineColor
+
+                Text {
+                    anchors.left: parent.left
+                    anchors.right: calendarIcon.left
+                    anchors.leftMargin: page.px(10)
+                    anchors.rightMargin: page.px(8)
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: dateField.parsed.ok ? dateField.parsed.pretty : qsTr("Pick a date")
+                    color: dateField.parsed.ok ? page.inkColor : page.mutedColor
+                    elide: Text.ElideRight
+                    font.family: "iA Writer Mono S"
+                    font.pixelSize: page.px(15)
+                }
+
+                // A small calendar page: a frame, its top bar, and two rings.
+                Item {
+                    id: calendarIcon
+                    anchors.right: parent.right
+                    anchors.rightMargin: page.px(12)
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: page.px(16)
+                    height: page.px(16)
+                    Rectangle {
+                        anchors.fill: parent
+                        anchors.topMargin: page.px(2)
+                        radius: page.px(2)
+                        color: "transparent"
+                        border.width: Math.max(1, page.px(1.5))
+                        border.color: page.inkColor
+                    }
+                    Rectangle {
+                        x: 0; y: page.px(2)
+                        width: parent.width; height: page.px(4)
+                        color: page.inkColor
+                    }
+                    Repeater {
+                        model: 2
+                        Rectangle {
+                            x: index === 0 ? page.px(4) : parent.width - page.px(4) - width
+                            y: 0
+                            width: Math.max(1, page.px(2)); height: page.px(4)
+                            color: page.inkColor
+                        }
+                    }
+                }
+
+                MouseArea {
+                    id: pickerHit
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: { pickerButton.forceActiveFocus(); dateField.openCalendar(); }
+                }
+                Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Space || event.key === Qt.Key_Return
+                            || event.key === Qt.Key_Enter || event.key === Qt.Key_Down) {
+                        dateField.openCalendar();
+                        event.accepted = true;
+                    }
+                }
+                Accessible.role: Accessible.ComboBox
+                Accessible.name: dateField.caption + ": " + (dateField.parsed.pretty || "")
+                Accessible.onPressAction: dateField.openCalendar()
+
+                DatePicker {
+                    id: calendar
+                    y: pickerButton.height + page.px(4)
+                    pageColor: page.pageColor
+                    inkColor: page.inkColor
+                    uiScale: page.uiScale
+                    iso: dateField.parsed.ok ? dateField.parsed.iso : ""
+                    onPicked: function(iso) { dateField.text = iso; }
+                    onClosed: pickerButton.forceActiveFocus()
+                }
             }
             SmallButton {
                 text: qsTr("Today")
-                onClicked: input.text = dates.todayText()
+                onClicked: dateField.text = dates.todayText()
             }
-        }
-        Text {
-            text: dateField.parsed.pretty || " "
-            color: dateField.parsed.ok ? page.inkColor : Material.color(Material.Red)
-            opacity: dateField.parsed.ok ? 0.8 : 1
-            font.family: "iA Writer Mono S"
-            font.pixelSize: page.px(13)
-            Layout.fillWidth: true
-            elide: Text.ElideRight
         }
     }
 
@@ -278,7 +349,7 @@ Flickable {
                     onClicked: { var t = fromField.text; fromField.text = toField.text; toField.text = t; }
                 }
             }
-            DateField { id: toField; caption: qsTr("To"); text: dates.todayText() }
+            DateField { id: toField; caption: qsTr("To") }
             Result { answer: dates.difference(fromField.text, toField.text, inclusive.checked) }
         }
 
@@ -288,7 +359,7 @@ Flickable {
             Layout.fillWidth: true
             spacing: page.px(10)
 
-            DateField { id: startField; caption: qsTr("Start"); text: dates.todayText() }
+            DateField { id: startField; caption: qsTr("Start") }
             RowLayout {
                 Layout.fillWidth: true
                 spacing: page.px(8)
@@ -328,7 +399,7 @@ Flickable {
             Layout.fillWidth: true
             spacing: page.px(10)
 
-            DateField { id: infoField; objectName: "infoInput"; caption: qsTr("Date"); text: dates.todayText() }
+            DateField { id: infoField; objectName: "infoInput"; caption: qsTr("Date") }
             Result { answer: dates.info(infoField.text) }
         }
     }

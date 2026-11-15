@@ -68,8 +68,10 @@ the word, to flip one with a click.
 
 The time between two dates (in calendar terms, weeks, weekdays, and more), a
 date moved forward or back by years, months, weeks, and days (optionally
-business days), and facts about one date. Dates can be typed as `2026-11-14`,
-`11/14/26`, `Nov 14 2026`, `today`, or offsets such as `+30`, `-2w`, `+3m`.
+business days), and facts about one date. Click a date to pick another from a
+small calendar. Click its title to step out to the months of the year, then to
+a span of years. From the keyboard, arrows move by day and week, Page Up and
+Page Down by month (with Shift, by year), Enter picks, and `T` picks today.
 
 ### Converters
 

@@ -3,6 +3,7 @@
         <file alias="Main.qml">Main.qml</file>
         <file alias="CalcButton.qml">CalcButton.qml</file>
         <file alias="DatesPage.qml">DatesPage.qml</file>
+        <file alias="DatePicker.qml">DatePicker.qml</file>
         <file alias="StandardPage.qml">StandardPage.qml</file>
         <file alias="ScientificPage.qml">ScientificPage.qml</file>
         <file alias="ProgrammerPage.qml">ProgrammerPage.qml</file>
