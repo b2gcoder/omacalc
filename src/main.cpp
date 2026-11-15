@@ -5,12 +5,19 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlError>
+#include <QtQml/qqml.h>
 #include <QQuickStyle>
 #include <QUrl>
 #include <QWindow>
 #include <QFile>
 
 #include "backend.h"
+#include "converter.h"
+#include "datecalc.h"
+#include "graphview.h"
+#include "programmer.h"
+#include "scientific.h"
+#include "tape.h"
 #include "systemtheme.h"
 #include "translator.h"
 
@@ -33,6 +40,15 @@ int main(int argc, char *argv[]) {
     app.installTranslator(&translator);
 
     Backend backend(&app);
+    DateCalc dateCalc(&app);
+    ScientificCalc scientific(&app);
+    ProgrammerCalc programmer(&app);
+    UnitConverter converter(&app);
+    Tape tape(&app);
+    // Standard and Scientific share one history tape, newest first.
+    QObject::connect(&backend, &Backend::evaluated, &tape, &Tape::addHistory);
+    QObject::connect(&scientific, &ScientificCalc::evaluated, &tape, &Tape::addHistory);
+    qmlRegisterType<GraphView>("Omacalc", 1, 0, "GraphView");
     SystemTheme systemTheme(&app);
     backend.setDarkMode(systemTheme.darkMode());
     QObject::connect(&systemTheme, &SystemTheme::darkModeChanged, &backend,
@@ -62,12 +78,19 @@ int main(int argc, char *argv[]) {
     QObject::connect(&translator, &Translator::changed, &engine, &QQmlEngine::retranslate);
     // The display is C++ text ("Error"), which retranslate() doesn't reach.
     QObject::connect(&translator, &Translator::changed, &backend, &Backend::calculationChanged);
+    QObject::connect(&translator, &Translator::changed, &scientific, &ScientificCalc::changed);
+    QObject::connect(&translator, &Translator::changed, &programmer, &ProgrammerCalc::changed);
     QObject::connect(&engine, &QQmlApplicationEngine::warnings, &app,
                      [](const QList<QQmlError> &warnings) {
         for (const QQmlError &warning : warnings)
             qWarning().noquote() << warning.toString();
     });
     engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("dates"), &dateCalc);
+    engine.rootContext()->setContextProperty(QStringLiteral("scientific"), &scientific);
+    engine.rootContext()->setContextProperty(QStringLiteral("programmer"), &programmer);
+    engine.rootContext()->setContextProperty(QStringLiteral("converter"), &converter);
+    engine.rootContext()->setContextProperty(QStringLiteral("tape"), &tape);
 
     engine.load(QUrl(QStringLiteral("qrc:/Main.qml")));
     if (engine.rootObjects().isEmpty()) {

@@ -10,6 +10,13 @@
 #include <cmath>
 
 #include "backend.h"
+#include "converter.h"
+#include "datecalc.h"
+#include "expression.h"
+#include "graphview.h"
+#include "programmer.h"
+#include "scientific.h"
+#include "tape.h"
 #include "systemtheme.h"
 #include "translator.h"
 
@@ -18,6 +25,26 @@ void press(Backend &calculator, const QString &keys) {
     const QStringList sequence = keys.split(QLatin1Char(' '), Qt::SkipEmptyParts);
     for (const QString &key : sequence)
         calculator.pressKey(key);
+}
+
+// Keys separated by spaces; a word in brackets is a function: "30 [sin] =".
+void press(ScientificCalc &calculator, const QString &keys) {
+    for (const QString &key : keys.split(QLatin1Char(' '), Qt::SkipEmptyParts)) {
+        if (key.startsWith(QLatin1Char('[')) && key.endsWith(QLatin1Char(']')))
+            calculator.applyFunction(key.mid(1, key.size() - 2));
+        else
+            calculator.pressKey(key);
+    }
+}
+
+void press(ProgrammerCalc &calculator, const QString &keys) {
+    for (const QString &key : keys.split(QLatin1Char(' '), Qt::SkipEmptyParts))
+        calculator.pressKey(key);
+}
+
+double eval(const QString &text, Expression::AngleUnit unit = Expression::Degrees, QString *error = nullptr) {
+    QString local;
+    return Expression::evaluate(text, unit, error ? error : &local);
 }
 }
 
@@ -30,6 +57,430 @@ private slots:
         QSettings::setDefaultFormat(QSettings::IniFormat);
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope,
                            m_settingsDirectory.path());
+    }
+
+    void parsesDates() {
+        DateCalc dates;
+        dates.setToday(QDate(2026, 11, 14));
+        QCOMPARE(dates.parseDate("2026-11-14"), QDate(2026, 11, 14));
+        QCOMPARE(dates.parseDate("11/14/2026"), QDate(2026, 11, 14));
+        QCOMPARE(dates.parseDate("11/14/26"), QDate(2026, 11, 14));
+        QCOMPARE(dates.parseDate("7/4/76"), QDate(1976, 7, 4));
+        QCOMPARE(dates.parseDate("Nov 14, 2026"), QDate(2026, 11, 14));
+        QCOMPARE(dates.parseDate("november 14th 2026"), QDate(2026, 11, 14));
+        QCOMPARE(dates.parseDate("14 Nov 2026"), QDate(2026, 11, 14));
+        QCOMPARE(dates.parseDate("20261114"), QDate(2026, 11, 14));
+        QCOMPARE(dates.parseDate("Dec 25"), QDate(2026, 12, 25));
+        QCOMPARE(dates.parseDate("today"), QDate(2026, 11, 14));
+        QCOMPARE(dates.parseDate("yesterday"), QDate(2026, 11, 13));
+        QCOMPARE(dates.parseDate("+30"), QDate(2026, 12, 14));
+        QCOMPARE(dates.parseDate("-2w"), QDate(2026, 10, 31));
+        QCOMPARE(dates.parseDate("today + 3m"), QDate(2027, 2, 14));
+        QCOMPARE(dates.parseDate("+1y"), QDate(2027, 11, 14));
+        QVERIFY(!dates.parseDate("2026-02-30").isValid());
+        QVERIFY(!dates.parseDate("banana").isValid());
+    }
+
+    void spansCalendarMonths() {
+        int y = 0, m = 0, d = 0;
+        DateCalc::yearsMonthsDays(QDate(2026, 1, 31), QDate(2026, 3, 1), &y, &m, &d);
+        QCOMPARE(QList<int>({y, m, d}), QList<int>({0, 1, 1}));
+        DateCalc::yearsMonthsDays(QDate(1990, 5, 20), QDate(2026, 11, 14), &y, &m, &d);
+        QCOMPARE(QList<int>({y, m, d}), QList<int>({36, 5, 25}));
+        DateCalc::yearsMonthsDays(QDate(2024, 2, 29), QDate(2025, 2, 28), &y, &m, &d);
+        QCOMPARE(QList<int>({y, m, d}), QList<int>({1, 0, 0}));
+    }
+
+    void countsWeekdays() {
+        // Mon Nov 9 → Fri Nov 13, 2026
+        QCOMPARE(DateCalc::weekdaysBetween(QDate(2026, 11, 9), QDate(2026, 11, 13)), 4);
+        QCOMPARE(DateCalc::weekdaysBetween(QDate(2026, 11, 13), QDate(2026, 11, 16)), 1);
+        QCOMPARE(DateCalc::weekdaysBetween(QDate(2026, 11, 16), QDate(2026, 11, 13)), -1);
+        QCOMPARE(DateCalc::weekdaysBetween(QDate(2026, 1, 1), QDate(2027, 1, 1)), 261);
+        // Friday + 1 business day is Monday; Saturday + 1 is Monday too.
+        QCOMPARE(DateCalc::addWeekdays(QDate(2026, 11, 13), 1), QDate(2026, 11, 16));
+        QCOMPARE(DateCalc::addWeekdays(QDate(2026, 11, 14), 1), QDate(2026, 11, 16));
+        QCOMPARE(DateCalc::addWeekdays(QDate(2026, 11, 16), -1), QDate(2026, 11, 13));
+        QCOMPARE(DateCalc::addWeekdays(QDate(2026, 11, 9), 10), QDate(2026, 11, 23));
+        QCOMPARE(DateCalc::addWeekdays(QDate(2026, 11, 9), 5), QDate(2026, 11, 16));
+        for (int n = -40; n <= 40; ++n) {
+            const QDate start(2026, 11, 9);
+            QCOMPARE(DateCalc::weekdaysBetween(start, DateCalc::addWeekdays(start, n)), qint64(n));
+        }
+    }
+
+    void computesDifferences() {
+        DateCalc dates;
+        dates.setToday(QDate(2026, 11, 14));
+        QVariantMap result = dates.difference("2026-11-09", "2026-11-13", false);
+        QVERIFY(result.value("ok").toBool());
+        QCOMPARE(result.value("headline").toString(), QStringLiteral("4 days"));
+        result = dates.difference("2026-11-09", "2026-11-13", true);
+        QCOMPARE(result.value("headline").toString(), QStringLiteral("5 days"));
+        const QVariantList rows = result.value("rows").toList();
+        QCOMPARE(rows.at(2).toMap().value("value").toString(), QStringLiteral("5"));
+        result = dates.difference("2000-01-01", "today", false);
+        QCOMPARE(result.value("headline").toString(), QStringLiteral("9,814 days"));
+        result = dates.difference("2026-11-14", "2026-11-01", false);
+        QCOMPARE(result.value("headline").toString(), QStringLiteral("13 days earlier"));
+        QVERIFY(!dates.difference("", "today", false).value("ok").toBool());
+    }
+
+    void shiftsDates() {
+        DateCalc dates;
+        dates.setToday(QDate(2026, 11, 14));
+        QCOMPARE(dates.shift("2026-11-14", false, 0, 0, 0, 100, false).value("iso").toString(),
+                 QStringLiteral("2027-02-22"));
+        QCOMPARE(dates.shift("2026-01-31", false, 0, 1, 0, 0, false).value("iso").toString(),
+                 QStringLiteral("2026-02-28"));
+        QCOMPARE(dates.shift("2026-11-14", true, 1, 2, 1, 3, false).value("iso").toString(),
+                 QStringLiteral("2025-09-04"));
+        QCOMPARE(dates.shift("2026-11-13", false, 0, 0, 0, 1, true).value("iso").toString(),
+                 QStringLiteral("2026-11-16"));
+    }
+
+    void expressionsFollowPrecedence() {
+        QCOMPARE(eval("2 + 3 × 4"), 14.0);
+        QCOMPARE(eval("(2 + 3) × 4"), 20.0);
+        QCOMPARE(eval("2 ^ 3 ^ 2"), 512.0);
+        QCOMPARE(eval("−2^2"), -4.0);
+        QCOMPARE(eval("2^−1"), 0.5);
+        QCOMPARE(eval("2π"), 2 * M_PI);
+        QCOMPARE(eval("3(4)"), 12.0);
+        QCOMPARE(eval("5!"), 120.0);
+        QCOMPARE(eval("3!²"), 36.0);
+        QCOMPARE(eval("|−4| + 1"), 5.0);
+        QCOMPARE(eval("8 root 3"), 2.0);
+        QCOMPARE(eval("−8 root 3"), -2.0);
+        QCOMPARE(eval("8 logb 2"), 3.0);
+        QCOMPARE(eval("−7 mod 3"), 2.0);
+        QCOMPARE(eval("7 mod −3"), -2.0);
+        QCOMPARE(eval("1.5E3"), 1500.0);
+        QCOMPARE(eval("2E−2"), 0.02);
+        QCOMPARE(eval("√9 + ∛27"), 6.0);
+        QCOMPARE(eval("log(1000) + ln(e)"), 4.0);
+        QCOMPARE(eval("10^2"), 100.0);
+        QVERIFY(std::fabs(eval("0.5!") - std::sqrt(M_PI) / 2) < 1e-12);
+    }
+
+    void expressionsReportErrors() {
+        QString error;
+        eval("1 ÷ 0", Expression::Degrees, &error);
+        QCOMPARE(error, QStringLiteral("Can't divide by zero"));
+        error.clear();
+        eval("√(−1)", Expression::Degrees, &error);
+        QCOMPARE(error, QStringLiteral("Invalid input"));
+        error.clear();
+        eval("tan(90)", Expression::Degrees, &error);
+        QCOMPARE(error, QStringLiteral("Invalid input"));
+        error.clear();
+        eval("171!", Expression::Degrees, &error);
+        QCOMPARE(error, QStringLiteral("Overflow"));
+        error.clear();
+        eval("2 +", Expression::Degrees, &error);
+        QVERIFY(!error.isEmpty());
+        error.clear();
+        eval("(2 + 3", Expression::Degrees, &error);
+        QCOMPARE(error, QStringLiteral("Missing )"));
+        QVERIFY(!Expression::parse("2 + y").isValid());
+    }
+
+    void trigonometryHitsExactValues() {
+        QCOMPARE(eval("sin(180)"), 0.0);
+        QCOMPARE(eval("sin(30)"), 0.5);
+        QCOMPARE(eval("cos(90)"), 0.0);
+        QCOMPARE(eval("cos(60)"), 0.5);
+        QCOMPARE(eval("tan(45)"), 1.0);
+        QCOMPARE(eval("sin(π)", Expression::Radians), 0.0);
+        QCOMPARE(eval("sin(100)", Expression::Gradians), 1.0);
+        QCOMPARE(eval("asin(1)"), 90.0);
+        QCOMPARE(eval("acos(0)", Expression::Gradians), 100.0);
+        QCOMPARE(eval("atan(1)", Expression::Radians), M_PI / 4);
+        QCOMPARE(eval("acot(0)"), 90.0);
+        QCOMPARE(eval("sec(60)"), 2.0);
+        QVERIFY(std::fabs(eval("cosh(0)") - 1) < 1e-15);
+        QVERIFY(std::fabs(eval("asinh(sinh(2))") - 2) < 1e-12);
+        QVERIFY(std::fabs(eval("dms(1.5)") - 1.3) < 1e-12);
+        QVERIFY(std::fabs(eval("deg(1.3)") - 1.5) < 1e-12);
+        QVERIFY(std::fabs(eval("dms(10.2525)") - 10.1509) < 1e-9);
+    }
+
+    void scientificWrapsTheLastNumber() {
+        ScientificCalc calc;
+        press(calc, "3 0 [sin]");
+        QCOMPARE(calc.text(), QStringLiteral("sin(30)"));
+        QCOMPARE(calc.display(), QStringLiteral("0.5"));
+        press(calc, "+ 4 [square] =");
+        QCOMPARE(calc.expression(), QStringLiteral("sin(30) + 4² ="));
+        QCOMPARE(calc.display(), QStringLiteral("16.5"));
+
+        press(calc, "clear [sqrt] 1 6 ) =");
+        QCOMPARE(calc.display(), QStringLiteral("4"));
+
+        press(calc, "clear 5 sign [square] =");
+        QCOMPARE(calc.expression(), QStringLiteral("(−5)² ="));
+        QCOMPARE(calc.display(), QStringLiteral("25"));
+
+        press(calc, "clear ( 2 + 3 ) [factorial] =");
+        QCOMPARE(calc.display(), QStringLiteral("120"));
+
+        press(calc, "clear 2 ^ 1 0 [reciprocal] =");
+        QCOMPARE(calc.expression(), QStringLiteral("2 ^ (1/10) ="));
+
+        press(calc, "clear 3 [tenPow] =");
+        QCOMPARE(calc.display(), QStringLiteral("1,000"));
+
+        press(calc, "clear angle");
+        QCOMPARE(calc.angleUnit(), 1);
+        press(calc, "pi [cos] =");
+        QCOMPARE(calc.display(), QStringLiteral("−1"));
+    }
+
+    void scientificChainsAndEdits() {
+        ScientificCalc calc;
+        press(calc, "1 / 3 = * 3 =");
+        QCOMPARE(calc.display(), QStringLiteral("1"));
+
+        press(calc, "clear 2 * ( 3 + 4");
+        QCOMPARE(calc.openParens(), 1);
+        QCOMPARE(calc.display(), QStringLiteral("4"));
+        press(calc, "+");
+        QCOMPARE(calc.display(), QStringLiteral("14"));
+        press(calc, "backspace");
+        QCOMPARE(calc.text(), QStringLiteral("2 × (3 + 4"));
+        press(calc, "clearEntry");
+        QCOMPARE(calc.text(), QStringLiteral("2 × (3 + "));
+        press(calc, "5 =");
+        QCOMPARE(calc.display(), QStringLiteral("16"));
+
+        press(calc, "clear 2 exp 5 sign =");
+        QCOMPARE(calc.expression(), QStringLiteral("2E−5 ="));
+        QCOMPARE(calc.display(), QStringLiteral("2E−5"));
+
+        press(calc, "fe");
+        QCOMPARE(calc.display(), QStringLiteral("2E−5"));
+        press(calc, "fe clear 1 2 3 4 5 =");
+        QCOMPARE(calc.display(), QStringLiteral("12,345"));
+
+        press(calc, "clear 5 - - +");
+        QCOMPARE(calc.text(), QStringLiteral("5 + "));
+        press(calc, "clear [sin] 3 0");
+        QCOMPARE(calc.text(), QStringLiteral("sin(30"));
+        press(calc, "backspace backspace backspace");
+        QCOMPARE(calc.text(), QString());
+
+        press(calc, "clear 8 root 3 =");
+        QCOMPARE(calc.display(), QStringLiteral("2"));
+        press(calc, "clear 1 / 0 =");
+        QVERIFY(calc.errored());
+        QCOMPARE(calc.display(), QStringLiteral("Can't divide by zero"));
+        press(calc, "7");
+        QVERIFY(!calc.errored());
+        QCOMPARE(calc.display(), QStringLiteral("7"));
+    }
+
+    void scientificReportsHistory() {
+        ScientificCalc calc;
+        Tape tape;
+        connect(&calc, &ScientificCalc::evaluated, &tape, &Tape::addHistory);
+        press(calc, "2 + 2 =");
+        QCOMPARE(tape.history().size(), 1);
+        const QVariantMap entry = tape.history().first().toMap();
+        QCOMPARE(entry.value("expression").toString(), QStringLiteral("2 + 2"));
+        QCOMPARE(entry.value("result").toString(), QStringLiteral("4"));
+        calc.enterNumber(entry.value("value").toDouble());
+        press(calc, "* 3 =");
+        QCOMPARE(calc.display(), QStringLiteral("12"));
+    }
+
+    void standardHasUnaryKeysAndClearEntry() {
+        Backend calc;
+        press(calc, "9 sqrt");
+        QCOMPARE(calc.display(), QStringLiteral("3"));
+        press(calc, "clear 4 reciprocal");
+        QCOMPARE(calc.display(), QStringLiteral("0.25"));
+        press(calc, "clear 1 2 square");
+        QCOMPARE(calc.display(), QStringLiteral("144"));
+        press(calc, "clear 1 2 + 3 4 clearEntry 5 =");
+        QCOMPARE(calc.display(), QStringLiteral("17"));
+        press(calc, "clear 0 reciprocal");
+        QCOMPARE(calc.display(), QStringLiteral("Error"));
+        QCOMPARE(calc.expression(), QStringLiteral("1/(0)"));
+        press(calc, "clear 5 + 4 sqrt =");
+        QCOMPARE(calc.display(), QStringLiteral("7"));
+    }
+
+    void standardFeedsMemoryAndHistory() {
+        Backend calc;
+        Tape tape;
+        connect(&calc, &Backend::evaluated, &tape, &Tape::addHistory);
+        press(calc, "6 * 7 =");
+        QCOMPARE(tape.history().size(), 1);
+        QCOMPARE(tape.history().first().toMap().value("result").toString(), QStringLiteral("42"));
+        tape.memoryStore(calc.currentNumber());
+        tape.memoryAdd(8);
+        QCOMPARE(tape.memoryRecall(), 50.0);
+        tape.memoryStore(1);
+        tape.memorySubtract(3);
+        QCOMPARE(tape.memoryValues(), QList<double>({-2, 50}));
+        tape.memoryItemAdd(1, 50);
+        QCOMPARE(tape.memory().at(1).toMap().value("text").toString(), QStringLiteral("100"));
+        calc.enterNumber(tape.memoryRecall());
+        QCOMPARE(calc.display(), QStringLiteral("-2"));
+        tape.memoryItemClear(0);
+        QCOMPARE(tape.memoryRecall(), 100.0);
+        tape.memoryClear();
+        QVERIFY(!tape.hasMemory());
+        tape.memorySubtract(5);
+        QCOMPARE(tape.memoryRecall(), -5.0);
+    }
+
+    void programmerShowsEveryBase() {
+        ProgrammerCalc calc;
+        press(calc, "2 5 5");
+        QCOMPARE(calc.hex(), QStringLiteral("FF"));
+        QCOMPARE(calc.oct(), QStringLiteral("377"));
+        QCOMPARE(calc.bin(), QStringLiteral("1111 1111"));
+        QCOMPARE(calc.dec(), QStringLiteral("255"));
+        press(calc, "sign");
+        QCOMPARE(calc.dec(), QStringLiteral("−255"));
+        QCOMPARE(calc.hex(), QStringLiteral("FFFF FFFF FFFF FF01"));
+        calc.setWordBits(8);
+        QCOMPARE(calc.hex(), QStringLiteral("1"));
+        QCOMPARE(calc.dec(), QStringLiteral("1"));
+
+        press(calc, "clear");
+        calc.setBase(16);
+        press(calc, "7 F");
+        QCOMPARE(calc.dec(), QStringLiteral("127"));
+        press(calc, "+ 1 =");
+        QCOMPARE(calc.dec(), QStringLiteral("−128"));
+        QCOMPARE(calc.display(), QStringLiteral("80"));
+        calc.setBase(10);
+        QCOMPARE(calc.display(), QStringLiteral("−128"));
+        QVERIFY(!calc.digitAllowed("A"));
+    }
+
+    void programmerDoesBitwiseArithmetic() {
+        ProgrammerCalc calc;
+        press(calc, "1 2 and 1 0 =");
+        QCOMPARE(calc.dec(), QStringLiteral("8"));
+        press(calc, "clear 1 2 or 3 =");
+        QCOMPARE(calc.dec(), QStringLiteral("15"));
+        press(calc, "clear 1 2 xor 1 0 =");
+        QCOMPARE(calc.dec(), QStringLiteral("6"));
+        press(calc, "clear 0 not");
+        QCOMPARE(calc.dec(), QStringLiteral("−1"));
+        press(calc, "clear 1 + 2 * 3 =");
+        QCOMPARE(calc.dec(), QStringLiteral("7"));
+        press(calc, "clear ( 1 + 2 ) * 3 =");
+        QCOMPARE(calc.dec(), QStringLiteral("9"));
+        QCOMPARE(calc.expression(), QStringLiteral("(1 + 2) × 3 ="));
+        press(calc, "clear 7 / 2 =");
+        QCOMPARE(calc.dec(), QStringLiteral("3"));
+        press(calc, "clear 7 sign % 3 =");
+        QCOMPARE(calc.dec(), QStringLiteral("−1"));
+        press(calc, "clear 1 / 0 =");
+        QVERIFY(calc.errored());
+        press(calc, "clear 1 lsh 4 =");
+        QCOMPARE(calc.dec(), QStringLiteral("16"));
+        press(calc, "clear 1 2 nand 1 0 =");
+        QCOMPARE(calc.dec(), QStringLiteral("−9"));
+    }
+
+    void programmerShiftsByMode() {
+        ProgrammerCalc calc;
+        calc.setWordBits(8);
+        calc.setBase(2);
+        press(calc, "1 0 0 0 0 0 0 1");
+        QCOMPARE(calc.dec(), QStringLiteral("−127"));
+        press(calc, "rsh 1 =");
+        QCOMPARE(calc.bin(), QStringLiteral("1100 0000"));  // arithmetic keeps the sign
+        calc.setShiftMode(1);
+        press(calc, "clear 1 0 0 0 0 0 0 1 rsh 1 =");
+        QCOMPARE(calc.bin(), QStringLiteral("100 0000"));
+        calc.setShiftMode(2);
+        press(calc, "clear 1 0 0 0 0 0 0 1 rsh 1 =");
+        QCOMPARE(calc.bin(), QStringLiteral("1100 0000"));
+        press(calc, "clear 1 0 0 0 0 0 0 1 lsh 1 =");
+        QCOMPARE(calc.bin(), QStringLiteral("11"));
+        calc.setShiftMode(3);
+        press(calc, "clear 1 0 0 0 0 0 0 1 lsh 1 =");
+        QCOMPARE(calc.bin(), QStringLiteral("10"));
+        QVERIFY(calc.carry());
+        press(calc, "lsh 1 =");
+        QCOMPARE(calc.bin(), QStringLiteral("101"));
+        QVERIFY(!calc.carry());
+    }
+
+    void programmerTogglesBits() {
+        ProgrammerCalc calc;
+        calc.toggleBit(0);
+        calc.toggleBit(3);
+        QCOMPARE(calc.dec(), QStringLiteral("9"));
+        QVERIFY(calc.bit(3));
+        calc.toggleBit(63);
+        QCOMPARE(calc.hex(), QStringLiteral("8000 0000 0000 0009"));
+        calc.setWordBits(16);
+        QCOMPARE(calc.hex(), QStringLiteral("9"));
+        calc.toggleBit(20);
+        QCOMPARE(calc.dec(), QStringLiteral("9"));
+        press(calc, "9");  // continues the typed number
+        QCOMPARE(calc.dec(), QStringLiteral("99"));
+    }
+
+    void convertsUnits() {
+        UnitConverter converter(nullptr, m_settingsDirectory.path() + QStringLiteral("/no-cache"));
+        QCOMPARE(converter.convertText("length", "in", "cm", "1"), QStringLiteral("2.54"));
+        QCOMPARE(converter.convertText("length", "mi", "km", "1"), QStringLiteral("1.609344"));
+        QCOMPARE(converter.convertText("temperature", "c", "f", "100"), QStringLiteral("212"));
+        QCOMPARE(converter.convertText("temperature", "f", "c", "−40"), QStringLiteral("−40"));
+        QCOMPARE(converter.convertText("temperature", "c", "k", "0"), QStringLiteral("273.15"));
+        QCOMPARE(converter.convertText("volume", "galUs", "l", "1"), QStringLiteral("3.785411784"));
+        QCOMPARE(converter.convertText("volume", "cupUs", "flozUs", "1"), QStringLiteral("8"));
+        QCOMPARE(converter.convertText("weight", "lb", "oz", "1"), QStringLiteral("16"));
+        QCOMPARE(converter.convertText("data", "gibyte", "mibyte", "1"), QStringLiteral("1,024"));
+        QCOMPARE(converter.convertText("data", "byte", "bit", "1"), QStringLiteral("8"));
+        QCOMPARE(converter.convertText("time", "d", "h", "1"), QStringLiteral("24"));
+        QCOMPARE(converter.convertText("angle", "rad", "deg", "3.14159265358979"), QStringLiteral("180"));
+        QCOMPARE(converter.convertText("area", "ac", "ft2", "1"), QStringLiteral("43,560"));
+        QCOMPARE(converter.convertText("speed", "kn", "kmh", "1"), QStringLiteral("1.852"));
+        QCOMPARE(converter.convertText("pressure", "atm", "pa", "1"), QStringLiteral("101,325"));
+        QCOMPARE(converter.convertText("length", "m", "ft", "1,000"), QStringLiteral("3,280.83989501312"));
+        QCOMPARE(converter.convertText("length", "m", "ft", "abc"), QString());
+        QCOMPARE(converter.allConversions("temperature", "c", "0").size(), 3);
+        QCOMPARE(converter.categories().size(), 13);
+        QVERIFY(!converter.currencyReady());
+    }
+
+    void convertsCurrencyFromRates() {
+        UnitConverter converter(nullptr, m_settingsDirectory.path() + QStringLiteral("/no-cache"));
+        converter.setRates({{"USD", 1.25}, {"GBP", 0.8}}, {{"USD", "US Dollar"}, {"EUR", "Euro"}}, "2026-11-13");
+        QVERIFY(converter.currencyReady());
+        QCOMPARE(converter.convertText("currency", "USD", "EUR", "10"), QStringLiteral("8.00"));
+        QCOMPARE(converter.convertText("currency", "GBP", "USD", "100"), QStringLiteral("156.25"));
+        QCOMPARE(converter.convertText("currency", "EUR", "GBP", "0.01"), QStringLiteral("0.008"));
+        QCOMPARE(converter.rateLine("USD", "GBP"), QStringLiteral("1 USD = 0.64 GBP"));
+        QCOMPARE(converter.currencyStatus(), QStringLiteral("Rates from 2026-11-13"));
+        QCOMPARE(converter.units("currency").size(), 3);
+    }
+
+    void graphParsesEquations() {
+        QCOMPARE(GraphView::stripLeftSide("y = x^2"), QStringLiteral("x^2"));
+        QCOMPARE(GraphView::stripLeftSide("f(x)=sin(x)"), QStringLiteral("sin(x)"));
+        QCOMPARE(GraphView::niceStep(0.3), 0.2);
+        QCOMPARE(GraphView::niceStep(7), 5.0);
+        QCOMPARE(GraphView::niceStep(80), 100.0);
+        const Expression parabola = Expression::parse("2x^2 − 3");
+        QVERIFY(parabola.usesVariable());
+        QCOMPARE(parabola.evaluate(2), 5.0);
+        const Expression exponential = Expression::parse("ex");
+        QCOMPARE(exponential.evaluate(2), 2 * std::exp(1.0));
+        GraphView view;
+        view.setEquations({"x^2", "", "y = sin("});
+        QCOMPARE(view.errors().at(0), QString());
+        QCOMPARE(view.errors().at(1), QString());
+        QVERIFY(!view.errors().at(2).isEmpty());
     }
 
     void startsAtZero() {

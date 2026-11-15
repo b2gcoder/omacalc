@@ -38,13 +38,21 @@ public:
 
     Q_INVOKABLE void pressKey(const QString &key);
     Q_INVOKABLE void copyResult() const;
+    Q_INVOKABLE void copyText(const QString &text) const;
+    Q_INVOKABLE QString clipboardText() const;
     Q_INVOKABLE void pasteNumber();
+    // The number on the display, for memory and history to take, and a
+    // number recalled from them to continue with.
+    Q_INVOKABLE double currentNumber() const;
+    Q_INVOKABLE void enterNumber(double value);
     // Launch size for the current text scale. Not a live binding: the window
     // reads it once, and a later scale change waits until the next launch.
     Q_INVOKABLE QVariantMap defaultWindowSize() const;
 
 signals:
     void calculationChanged();
+    // After a successful =, for the history tape.
+    void evaluated(const QString &expression, const QString &result, double value);
     void darkModeChanged();
     void textScaleChanged();
     void themeColorsChanged();
@@ -58,6 +66,8 @@ private:
     void pressToggleSign();
     void pressBackspace();
     void pressClear();
+    void pressClearEntry();
+    void pressUnary(const QString &kind);
 
     QString plainDisplay() const;
     QString currentValue() const;

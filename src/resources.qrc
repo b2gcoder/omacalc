@@ -2,6 +2,17 @@
     <qresource prefix="/">
         <file alias="Main.qml">Main.qml</file>
         <file alias="CalcButton.qml">CalcButton.qml</file>
+        <file alias="DatesPage.qml">DatesPage.qml</file>
+        <file alias="StandardPage.qml">StandardPage.qml</file>
+        <file alias="ScientificPage.qml">ScientificPage.qml</file>
+        <file alias="ProgrammerPage.qml">ProgrammerPage.qml</file>
+        <file alias="GraphPage.qml">GraphPage.qml</file>
+        <file alias="ConverterPage.qml">ConverterPage.qml</file>
+        <file alias="CalcDisplay.qml">CalcDisplay.qml</file>
+        <file alias="MemoryRow.qml">MemoryRow.qml</file>
+        <file alias="TapePanel.qml">TapePanel.qml</file>
+        <file alias="HelpOverlay.qml">HelpOverlay.qml</file>
+        <file alias="keys.js">keys.js</file>
         <file alias="i18n/ar.json">i18n/ar.json</file>
         <file alias="i18n/bg.json">i18n/bg.json</file>
         <file alias="i18n/bn.json">i18n/bn.json</file>

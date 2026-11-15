@@ -5,6 +5,7 @@
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
+#include <QHash>
 #include <QLocale>
 #include <QRegularExpression>
 #include <QSettings>
@@ -154,6 +155,11 @@ void Backend::pressKey(const QString &key) {
         pressBackspace();
     } else if (key == QStringLiteral("clear")) {
         pressClear();
+    } else if (key == QStringLiteral("clearEntry")) {
+        pressClearEntry();
+    } else if (key == QStringLiteral("reciprocal") || key == QStringLiteral("square")
+               || key == QStringLiteral("sqrt")) {
+        pressUnary(key);
     } else {
         return;
     }
@@ -255,6 +261,7 @@ void Backend::pressEquals() {
         m_resultValue = value;
         m_result = formatNumber(value);
         m_justEvaluated = true;
+        emit evaluated(groupDigits(m_evaluatedExpression), groupDigits(m_result), value);
     }
     m_tokens.clear();
     m_entry.clear();
@@ -345,6 +352,80 @@ void Backend::pressClear() {
     m_entry.clear();
     clearEvaluation();
     m_errored = false;
+}
+
+// CE clears only what is being typed, keeping the expression so far: in
+// 12 + 34 it takes away the 34. After = or an error it clears everything.
+void Backend::pressClearEntry() {
+    if (m_errored || m_justEvaluated) {
+        pressClear();
+        return;
+    }
+    m_entry.clear();
+}
+
+// 1/x, x² and √x act on the number on the display at once, the way the
+// percent key does, and leave the answer as the entry to keep working with.
+void Backend::pressUnary(const QString &kind) {
+    if (m_errored)
+        return;
+
+    double value = 0;
+    if (m_justEvaluated) {
+        value = m_resultValue;
+        clearEvaluation();
+    } else {
+        bool ok = false;
+        value = QLocale::c().toDouble(currentValue(), &ok);
+        if (!ok)
+            return;
+    }
+
+    double result = 0;
+    bool valid = true;
+    if (kind == QStringLiteral("reciprocal")) {
+        valid = value != 0;
+        result = 1.0 / value;
+    } else if (kind == QStringLiteral("square")) {
+        result = value * value;
+    } else {
+        valid = value >= 0;
+        result = std::sqrt(value);
+    }
+
+    if (!valid || !std::isfinite(result)) {
+        static const QHash<QString, QString> symbols = {
+            {QStringLiteral("reciprocal"), QStringLiteral("1/(%1)")},
+            {QStringLiteral("square"), QStringLiteral("sqr(%1)")},
+            {QStringLiteral("sqrt"), QStringLiteral("√(%1)")},
+        };
+        const QString operand = groupDigits(formatNumber(value));
+        const QString prefix = prettyExpression(m_tokens);
+        m_evaluatedExpression = (prefix.isEmpty() ? QString() : prefix + QLatin1Char(' '))
+            + symbols.value(kind).arg(operand);
+        m_errored = true;
+        m_tokens.clear();
+        m_entry.clear();
+        return;
+    }
+    m_entry = formatNumber(result);
+}
+
+double Backend::currentNumber() const {
+    if (m_errored)
+        return 0;
+    if (m_justEvaluated && m_entry.isEmpty())
+        return m_resultValue;
+    return QLocale::c().toDouble(currentValue());
+}
+
+void Backend::enterNumber(double value) {
+    if (!std::isfinite(value))
+        return;
+    if (m_errored || m_justEvaluated)
+        pressClear();
+    m_entry = formatNumber(value);
+    emit calculationChanged();
 }
 
 // Editing after equals picks up from the result's displayed digits, with the
@@ -476,6 +557,16 @@ void Backend::copyResult() const {
         clipboard->setText(plainDisplay());
 }
 
+void Backend::copyText(const QString &text) const {
+    if (QClipboard *clipboard = QGuiApplication::clipboard())
+        clipboard->setText(text);
+}
+
+QString Backend::clipboardText() const {
+    const QClipboard *clipboard = QGuiApplication::clipboard();
+    return clipboard ? clipboard->text() : QString();
+}
+
 // Paste replaces the current entry when the clipboard holds a number,
 // tolerating surrounding whitespace, thousands separators, a decimal comma,
 // and the typographic minus this calculator itself puts in expressions.
@@ -505,10 +596,7 @@ void Backend::pasteNumber() {
     if (!ok || !std::isfinite(value))
         return;
 
-    if (m_errored || m_justEvaluated)
-        pressClear();
-    m_entry = formatNumber(value);
-    emit calculationChanged();
+    enterNumber(value);
 }
 
 QVariantMap Backend::defaultWindowSize() const {

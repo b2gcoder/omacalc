@@ -7,8 +7,11 @@ Rectangle {
 
     property string label
     property string keyValue: label
-    property string kind: "number" // "number", "operator" or "equals"
+    property string kind: "number" // "number", "function", "operator" or "equals"
     property string iconName
+    // A latched key such as 2nd or hyp: drawn inverted while on.
+    property bool checked: false
+    property string accessibleName
     property color pageColor: "#101010"
     property color inkColor: "#eeeeee"
 
@@ -16,8 +19,10 @@ Rectangle {
 
     Accessible.role: Accessible.Button
     Accessible.name: {
+        if (accessibleName !== "") return accessibleName;
         if (iconName === "backspace") return qsTr("Backspace");
-        if (label === "AC") return qsTr("All clear");
+        if (label === "AC" || label === "C") return qsTr("All clear");
+        if (label === "CE") return qsTr("Clear entry");
         if (label === "±") return qsTr("Toggle sign");
         if (label === "%") return qsTr("Percent");
         if (label === "÷") return qsTr("Divide");
@@ -36,22 +41,29 @@ Rectangle {
             base.b + (tint.b - base.b) * amount, 1);
     }
 
-    readonly property real restingLift: kind === "operator" ? 0.16 : 0.05
+    readonly property real restingLift: kind === "operator" ? 0.16 : (kind === "function" ? 0.1 : 0.05)
     readonly property real activeLift: restingLift
         + (hitArea.pressed ? 0.09 : (hitArea.containsMouse ? 0.045 : 0))
+    readonly property bool inverted: kind === "equals" || checked
 
+    opacity: enabled ? 1 : 0.35
     radius: Math.min(14, height * 0.18)
-    color: kind === "equals"
+    color: inverted
         ? mixColors(inkColor, pageColor, hitArea.pressed ? 0.22 : (hitArea.containsMouse ? 0.1 : 0))
         : mixColors(pageColor, inkColor, activeLift)
     border.width: kind === "number" ? 1 : 0
     border.color: mixColors(pageColor, inkColor, 0.13)
 
+    // Long labels (sinh⁻¹, NAND) shrink to fit rather than spill out.
     Text {
         anchors.centerIn: parent
+        width: parent.width - 6
         visible: control.iconName === ""
         text: control.label
-        color: control.kind === "equals" ? control.pageColor : control.inkColor
+        horizontalAlignment: Text.AlignHCenter
+        fontSizeMode: Text.HorizontalFit
+        minimumPixelSize: 7
+        color: control.inverted ? control.pageColor : control.inkColor
         font.family: "iA Writer Mono S"
         font.pixelSize: Math.round(Math.min(parent.height * 0.42, parent.width * 0.3))
     }
@@ -109,6 +121,7 @@ Rectangle {
         id: hitArea
         anchors.fill: parent
         hoverEnabled: true
+        enabled: control.enabled
         onClicked: control.activated()
     }
 }
